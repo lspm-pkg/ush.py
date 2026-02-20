@@ -1,6 +1,6 @@
 # HTTPshell.py
-> The Open-Source Shell Access over HTTP/HTTPs program, still in alpha/wip.
----
+> The Open-Source Shell Access over HTTP/HTTPs program.
+
 > [!IMPORTANT]
 > This is still in alpha.
 > Bad code or security vulnerablitys are expected.
