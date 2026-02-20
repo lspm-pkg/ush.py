@@ -6,8 +6,8 @@
 > Bad code or security vulnerablitys are expected.
 ---
 > This program solves one problem:
-
-### Can't access your server because TCP or UDP Inbound is non existent and you only have a proxy path or an http/https ports
+---
+Can't access your server because TCP or UDP Inbound is non existent and you only have a proxy path or an http/https ports
 In mass scale? Then this is for you.
 ---
 Just grab the HTTPshell.py file (Yes, a single file) from the releases and this acts as both as a client & a server.
