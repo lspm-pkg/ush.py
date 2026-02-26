@@ -1,36 +1,83 @@
-# HTTPshell.py
-> The Open-Source Shell Access over HTTP/HTTPs program.
+# HTTPShell.py
 
-> **This program solves one problem:**
-Can't access your server because TCP or UDP Inbound is non existent and you only have a proxy path or an http/https ports in mass scale? Then this is for you.
+HTTPShell.py is a single‑file remote shell that works entirely over HTTP or HTTPS. It is designed for environments where direct inbound TCP or UDP access is blocked, an example like GCNAT/NAT, but HTTP or HTTPS access is allowed.
+
+It acts as both client and server, and works over standard web infrastructure outbound connections.
+
 ---
-Just grab the HTTPshell.py file (Yes, a single file) from the releases and this acts as both as a client & a server.
 
-You'll need UV from astral however.
+## Problem
+
+Many networks (ie: GCNAT) block inbound connections. This makes SSH or other remote shell protocols unusable. And cloudflare has it on a paywall.
+
+HTTPShell solves this by using an interactive shell over HTTP or HTTPS using standard web ports and proxy‑compatible traffic.
+
+---
+
+## Requirements
+
+- uv from Astral: https://astral.sh/uv
+- Linux system (server side)
+- PAM authentication enabled on the server
+
+No additional dependencies are required. uv will handle everything automatically.
+
+---
+
+## Installation
+
+Download the single file from Releases:
+
+Example: wget
 ```
-$ httpshell.py 
-usage: httpshell.py [-h] [--server] [--server-install] [--uninstall] [-s SECURE] [-f FAST] [user] [host]
-
-positional arguments:
-  user
-  host
-
-options:
-  -h, --help           show this help message and exit
-  --server
-  --server-install
-  --uninstall
-  -s, --secure SECURE
-  -f, --fast FAST
+sudo wget https://github.com/lspm-pkg/HTTPshell.py/releases/download/v1.0.0/HTTPshell.py -O /usr/bin/httpshell.py
 ```
+
+Make it executeable using `chmod +x /usr/bin/httpshell.py`.
+
 ---
-Features as of right now:
-- It can SH into stuff
-- It has color
-- It is fast enough
-- It interactive
-- It works with any shell
-- nano/vim/htop/top works
-- that's all
+
+## Usage
+
+### Start the server
+
+```
+sudo httpshell.py --server
+```
+
+This will setup caddy and the backend server.
+
+Install server on startup using `--server-install`.
+
 ---
-We are accepting pull requests & contributions.
+
+### Connect to the server using the client.
+
+```
+httpshell.py username server-ip
+```
+
+You will be prompted for the user's password.
+
+---
+
+## Features
+
+- Single file for client and server
+- Works over HTTP or HTTPS
+- Fully interactive shell
+- Supports bash, sh, zsh and others
+- Supports vim, nano, htop, top and other terminal applications
+- PTY based terminal for proper TTY behavior
+- PAM authentication using system users
+- Reverse proxy support, supports cloudflared out of the box
+- Works behind firewalls and restricted networks
+- Very Easy to use
+
+---
+
+## Contributing
+
+Pull requests and improvements are welcome.
+
+Security reviews are especially appreciated.
