@@ -92,7 +92,9 @@ WantedBy=multi-user.target
     subprocess.run(["systemctl", "daemon-reload"], check=True)
     subprocess.run(["systemctl", "enable", "--now", "httpshell.service"], check=True)
     print(f"[*] HTTPShell installed to {dest_script}")
-    print(f"[*] Service active on :{port}")def cleanup_and_exit(signum=None, frame=None):
+    print(f"[*] Service active on :{port}")
+
+def cleanup_and_exit(signum=None, frame=None):
     subprocess.run(["pkill", "-f", CADDY_PATH], stderr=subprocess.DEVNULL)
     sys.exit(0)
 
