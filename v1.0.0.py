@@ -62,7 +62,7 @@ def install_service(port):
         sys.exit("[!] Root required. Run with sudo.")
     os.makedirs(BASE_DIR, mode=0o700, exist_ok=True)
     os.chmod(BASE_DIR, 0o700)
-        current_script = os.path.abspath(sys.argv[0])
+    current_script = os.path.abspath(sys.argv[0])
     dest_script = os.path.join(BASE_DIR, "httpshell.py")
     try:
         shutil.copy2(current_script, dest_script)
