@@ -26,18 +26,43 @@ No additional dependencies are required. uv will handle everything automatically
 
 ## Installation
 
-Download the single file from Releases:
-
-Example: wget
+Grab uv from Astral:
 ```
+# Linux
+wget -qO- https://astral.sh/uv/install.sh | sh
+
+# Windows (PWSH)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Now download the single file from Releases:
+```
+# Linux
 sudo wget https://github.com/lspm-pkg/HTTPshell.py/releases/download/v1.0.1/HTTPshell.py -O /usr/bin/httpshell.py
+
+# Windows
+curl.exe -LO https://github.com/lspm-pkg/HTTPshell.py/releases/download/v1.0.1/HTTPshell.py
 ```
 
-Make it executeable using `chmod +x /usr/bin/httpshell.py`.
+Make it executeable using `chmod +x /usr/bin/httpshell.py` on linux.
 
 ---
 
 ## Usage
+
+### Connect to a server using the client.
+
+```
+# Linux
+httpshell.py username server-ip
+
+# Windows
+uv run httpshell.py username server-ip
+```
+
+You will be prompted for the user's password.
+
+---
 
 ### Start the server
 
@@ -48,16 +73,6 @@ sudo httpshell.py --server
 This will setup caddy and the backend server.
 
 Install server on startup using `--server-install`.
-
----
-
-### Connect to the server using the client.
-
-```
-httpshell.py username server-ip
-```
-
-You will be prompted for the user's password.
 
 ---
 
