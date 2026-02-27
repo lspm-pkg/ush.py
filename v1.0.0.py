@@ -228,7 +228,7 @@ def ensure_caddy(port, use_tls=True):
     cfg = f":{port} {{\n {tls}\n @shell path /auth /pull /push\n handle @shell {{\n rewrite * {{path}}?i={{remote_host}}\n reverse_proxy 127.0.0.1:269\n }}\n}}"
     with open(CADDY_CFG, "w") as f: f.write(cfg)
     subprocess.run(["pkill", "-f", CADDY_PATH], stderr=subprocess.DEVNULL)
-    subprocess.Popen([CADDY_PATH, "run", "--config", CADDY_CFG, "--adapter", "caddyfile"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen([CADDY_PATH, "run", "--config", CADDY_CFG, "caddyfile"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def run_client(args):
     p = 443 if is_domain(args.host) else args.port
