@@ -68,7 +68,7 @@ def run_c(h, p, u):
                 buf.append(ch)
     finally: termios.tcsetattr(0, 2, old); print("\nConnection closed.")
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="Ushs"); p.add_argument("--server", "-s", action="store_true"); p.add_argument("-p", type=int, default=8080); p.add_argument("-d", action="store_true"); p.add_argument("user", nargs="?"); p.add_argument("host", nargs="?"); a = p.parse_args()
+    p = argparse.ArgumentParser(description="ush.py"); p.add_argument("--server", "-s", action="store_true"); p.add_argument("-p", type=int, default=8080); p.add_argument("-d", action="store_true"); p.add_argument("user", nargs="?"); p.add_argument("host", nargs="?"); a = p.parse_args()
     if a.server:
         if a.d: 
             if os.fork() > 0: sys.exit(0)
