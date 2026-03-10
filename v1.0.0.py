@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
 import os, sys, tty, termios, select, threading, queue, fcntl, struct, signal, json, time, argparse, requests
 from http.server import BaseHTTPRequestHandler, HTTPServer
-M_BUF, IDLE, MAX_Q, sess, lock = 1024*1024, 1200, 50, {}, threading.Lock()
-def reaper():
-    while [time.sleep(30)]:
-        now = time.time(); [ (sess.pop(k), os.close(v['fd']), os.kill(v['pid'], 15)) for k,v in list(sess.items()) if now-v['last_activity'] > IDLE ]
+M_BUF, MAX_Q, sess, lock = 1024*1024, 50, {}, threading.Lock()
 class H(BaseHTTPRequestHandler):
     def _s(self, d=b"", c=200): self.send_response(c); self.end_headers(); self.wfile.write(d)
     def do_POST(self):
-        L, sid, path, now = int(self.headers.get("Content-Length", 0)), self.headers.get("X-Session"), self.path, time.time()
+        L, sid, path = int(self.headers.get("Content-Length", 0)), self.headers.get("X-Session"), self.path
         body = self.rfile.read(L)
         if path == "/auth":
             try:
                 d = json.loads(body); r, c = int(d.get("rows", 24)), int(d.get("cols", 80)); m, s = os.openpty(); fcntl.ioctl(s, 21524, struct.pack("HHHH", r, c, 0, 0))
                 if (pid := os.fork()) == 0: os.close(m); os.login_tty(s); os.execvp("/bin/login", ["/bin/login"])
-                sid = os.urandom(32).hex(); sess[sid] = {"fd": m, "slave_fd": s, "pid": pid, "q": queue.Queue(MAX_Q), "last_activity": now}
+                sid = os.urandom(32).hex(); sess[sid] = {"fd": m, "slave_fd": s, "pid": pid, "q": queue.Queue(MAX_Q)}
                 threading.Thread(target=self.rd, args=(m, sid), daemon=True).start(); self._s(json.dumps({"sid": sid}).encode())
             except: self._s(b"fail", 401)
         else:
-            with lock: (s := sess.get(sid)) and s.update({"last_activity": now})
-            if not s: return self._s(b"", 410)
+            if not (s := sess.get(sid)): return self._s(b"", 410)
             if path == "/pull":
                 out = b""
                 while not s["q"].empty() and len(out) < M_BUF: out += s["q"].get()
@@ -73,6 +69,6 @@ if __name__ == "__main__":
             if os.fork() > 0: sys.exit(0)
             os.setsid()
             if os.fork() > 0: sys.exit(0)
-        threading.Thread(target=reaper, daemon=True).start(); print(f"[ushs] server is running on :{a.p}"); HTTPServer(("0.0.0.0", a.p), H).serve_forever()
+        print(f"[ushs] server is running on :{a.p}"); HTTPServer(("0.0.0.0", a.p), H).serve_forever()
     elif a.host: run_c(a.host, a.p)
     else: p.print_help()
