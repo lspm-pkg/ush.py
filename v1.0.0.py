@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, sys, tty, termios, select, threading, queue, fcntl, struct, signal, json, time, argparse
+import os, sys, tty, termios, select, threading, queue, fcntl, struct, signal, json, time, argparse, requests
 from http.server import BaseHTTPRequestHandler, HTTPServer
 M_BUF, IDLE, MAX_Q, sess, lock = 1024*1024, 1200, 50, {}, threading.Lock()
 def reaper():
@@ -37,10 +37,9 @@ class H(BaseHTTPRequestHandler):
             except: break
         sess.pop(id, None)
 def get_ws(): return struct.unpack("HHHH", fcntl.ioctl(0, 21523, b'\x00'*8))[:2]
-def run_c(h, p, u):
-    import requests
+def run_c(h, p):
     S, d_ed, buf, ev = requests.Session(), [0], [], threading.Event(); r, c = get_ws(); url = f"http://{h}:{p}"
-    try: sid = S.post(f"{url}/auth", json={"user": u, "rows": r, "cols": c}).json()["sid"]
+    try: sid = S.post(f"{url}/auth", json={"rows": r, "cols": c}).json()["sid"]
     except: return print("Fail")
     def tx():
         while not d_ed[0]:
@@ -68,12 +67,12 @@ def run_c(h, p, u):
                 buf.append(ch)
     finally: termios.tcsetattr(0, 2, old); print("\nConnection closed.")
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="ush.py"); p.add_argument("--server", "-s", action="store_true"); p.add_argument("-p", type=int, default=8080); p.add_argument("-d", action="store_true"); p.add_argument("user", nargs="?"); p.add_argument("host", nargs="?"); a = p.parse_args()
+    p = argparse.ArgumentParser(description="ush.py"); p.add_argument("--server", "-s", action="store_true"); p.add_argument("-p", type=int, default=8080); p.add_argument("-d", action="store_true"); p.add_argument("host", nargs="?"); a = p.parse_args()
     if a.server:
         if a.d: 
             if os.fork() > 0: sys.exit(0)
             os.setsid()
             if os.fork() > 0: sys.exit(0)
         threading.Thread(target=reaper, daemon=True).start(); print(f"[ushs] server is running on :{a.p}"); HTTPServer(("0.0.0.0", a.p), H).serve_forever()
-    elif a.user and a.host: run_c(a.host, a.p, a.user)
+    elif a.host: run_c(a.host, a.p)
     else: p.print_help()
