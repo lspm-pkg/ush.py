@@ -38,10 +38,10 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 Now download the single file from Releases:
 ```
 # Linux
-sudo wget https://github.com/lspm-pkg/HTTPshell.py/releases/download/v1.0.1/HTTPshell.py -O /usr/bin/httpshell.py
+sudo wget https://github.com/lspm-pkg/HTTPshell.py/releases/download/v1.0.2/HTTPshell.py -O /usr/bin/httpshell.py
 
 # Windows
-curl.exe -LO https://github.com/lspm-pkg/HTTPshell.py/releases/download/v1.0.1/HTTPshell.py
+curl.exe -LO https://github.com/lspm-pkg/HTTPshell.py/releases/download/v1.0.2/HTTPshell.py
 ```
 
 Make it executeable using `chmod +x /usr/bin/httpshell.py` on linux.
