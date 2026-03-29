@@ -6,7 +6,7 @@
 ![Yaris](https://img.shields.io/badge/Size-9.0_KB-orange)
 
 
-`ush.py` is an fork of HTTPshell.py. It is a single-file, dependency-minimal remote shell that operates entirely over HTTP. It is specifically optimized for extremely resource-constrained environments (like 32MB RAM) and networks where inbound TCP access is restricted by GCNAT or aggressive firewalls.
+`ush.py` is an fork of HTTPshell.py. It is a single-file, dependency-minimal remote shell that operates entirely over Websocket. It is specifically optimized for extremely resource-constrained environments (like 32MB RAM) and networks where inbound TCP access is restricted by GCNAT or aggressive firewalls.
 
 By leveraging a PTY-based approach and smart backpressure management, `ush.py` provides a full interactive terminal experience over standard web traffic.
 
@@ -23,7 +23,7 @@ By leveraging a PTY-based approach and smart backpressure management, `ush.py` p
 
 Many networks (ie: GCNAT) block inbound connections. This makes SSH or other remote shell protocols unusable. And cloudflare has it on a paywall.
 
-`ush.py` solves this by multiplexing a full TTY session over standard POST requests, making it compatible with almost any reverse proxy (Cloudflare, Caddy, Nginx) and bypassing inbound port restrictions.
+`ush.py` solves this by multiplexing a full TTY session over standard Websocket, making it compatible with almost any reverse proxy (Cloudflare, Caddy, Nginx) and bypassing inbound port restrictions.
 
 ---
 
@@ -66,9 +66,8 @@ ush <host> -p 8080
 
 ## Features
 
-* Extreme Memory Efficiency: Includes a backpressure mechanism (`MAX_Q`) to prevent OOM (Out of Memory) crashes on tiny 32MB RAM servers when running high-output commands like `yes`.
-* PTY Powered: Supports `vim`, `htop`, `top`, and full shell interactivity with proper terminal resizing (`SIGWINCH` support).
-* Compressed & Fast: Highly optimized code for minimal overhead.
+* PTY Powered: Supports `vim`, `htop`, `top`, and full shell interactivity with proper terminal resizing.
+* Fast: Highly optimized code for minimal overhead.
 * Proxy Friendly: Designed to work flawlessly behind Cloudflare, Caddy, and other reverse proxies.
 
 ---
