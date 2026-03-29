@@ -4,7 +4,15 @@ try: import websockets
 except: sys.exit("pip install websockets")
 
 IS_WIN=platform.system()=="Windows"
-if IS_WIN: import msvcrt
+if IS_WIN:
+ import msvcrt,ctypes
+ try:
+  k32=ctypes.windll.kernel32
+  h=k32.GetStdHandle(-11)
+  m=ctypes.c_ulong()
+  k32.GetConsoleMode(h,ctypes.byref(m))
+  k32.SetConsoleMode(h,m.value|4)
+ except: pass
 else: import tty,termios,fcntl,select
 
 async def run_c(h,p,verbose=False):
@@ -40,8 +48,14 @@ async def run_c(h,p,verbose=False):
     if IS_WIN:
      if msvcrt.kbhit():
       c=msvcrt.getwch()
-      if c=="\x1d": await close_ws(ws);break
-      await ws.send(c.encode("utf-8","ignore"))
+      if c in ("\x00","\xe0"):
+       c2=msvcrt.getwch()
+       d={"H":b"\x1b[A","P":b"\x1b[B","M":b"\x1b[C","K":b"\x1b[D","S":b"\x1b[3~","G":b"\x1b[H","O":b"\x1b[F","I":b"\x1b[5~","Q":b"\x1b[6~"}.get(c2,b"")
+       if d: await ws.send(d)
+      else:
+       if c=="\x1d": await close_ws(ws);break
+       if c=="\x08": await ws.send(b"\x7f")
+       else: await ws.send(c.encode("utf-8","ignore"))
      else: await asyncio.sleep(0.01)
     else:
      c=await l.run_in_executor(None,rp)
@@ -52,23 +66,34 @@ async def run_c(h,p,verbose=False):
   s.set()
 
  async def poll_sz(ws):
-  def sz():
-   if IS_WIN: return os.get_terminal_size()
-   try: return struct.unpack("HH",fcntl.ioctl(0,21523,b"\x00"*4))
-   except: return (24,80)
-  o=sz()
-  await ws.send(json.dumps({"type":"resize","rows":getattr(o,"lines",o[0]),"cols":getattr(o,"columns",o[1])}))
-  while not s.is_set():
-   await asyncio.sleep(0.5)
-   n=sz()
-   if n!=o:o=n;await ws.send(json.dumps({"type":"resize","rows":getattr(n,"lines",n[0]),"cols":getattr(n,"columns",n[1])}))
+  try:
+   def sz():
+    if IS_WIN:
+     try: return os.get_terminal_size()
+     except: return (24,80)
+    try: return struct.unpack("HH",fcntl.ioctl(0,21523,b"\x00"*4))
+    except: return (24,80)
+   o=sz()
+   await ws.send(json.dumps({"type":"resize","rows":getattr(o,"lines",o[0]),"cols":getattr(o,"columns",o[1])}))
+   while not s.is_set():
+    await asyncio.sleep(0.5)
+    n=sz()
+    if n!=o:o=n;await ws.send(json.dumps({"type":"resize","rows":getattr(n,"lines",n[0]),"cols":getattr(n,"columns",n[1])}))
+  except: pass
+  s.set()
 
  if not IS_WIN:
   ot=termios.tcgetattr(0)
   tty.setraw(0);ct=termios.tcgetattr(0);ct[3]&=~termios.ISIG;termios.tcsetattr(0,termios.TCSADRAIN,ct)
+ else:
+  import signal
+  try: signal.signal(signal.SIGINT, signal.SIG_IGN)
+  except: pass
 
  try:
-  async with websockets.connect(uri,extra_headers=s.headers,ping_interval=20,ping_timeout=20) as ws:
+  ws_ver=int(websockets.__version__.split(".")[0])
+  kw={"additional_headers":s.headers} if ws_ver>=14 else {"extra_headers":s.headers}
+  async with websockets.connect(uri,**kw,ping_interval=20,ping_timeout=20) as ws:
    await asyncio.gather(rx(ws),tx(ws),poll_sz(ws))
  except Exception as e:
   if verbose: print(f"Fail: {e}")
