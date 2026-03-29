@@ -4,14 +4,19 @@ try: import websockets
 except: sys.exit("pip install websockets")
 
 IS_WIN=platform.system()=="Windows"
+APP_CURSOR=False
 if IS_WIN:
  import msvcrt,ctypes
+ k32=ctypes.windll.kernel32
+ hi=k32.GetStdHandle(-10)
+ mi=ctypes.c_ulong()
  try:
-  k32=ctypes.windll.kernel32
-  h=k32.GetStdHandle(-11)
-  m=ctypes.c_ulong()
-  k32.GetConsoleMode(h,ctypes.byref(m))
-  k32.SetConsoleMode(h,m.value|4)
+  ho=k32.GetStdHandle(-11)
+  mo=ctypes.c_ulong()
+  k32.GetConsoleMode(ho,ctypes.byref(mo))
+  k32.SetConsoleMode(ho,mo.value|4)
+  k32.GetConsoleMode(hi,ctypes.byref(mi))
+  k32.SetConsoleMode(hi,mi.value & ~1)
  except: pass
 else: import tty,termios,fcntl,select
 
@@ -25,6 +30,7 @@ async def run_c(h,p,verbose=False):
   with contextlib.suppress(Exception): await ws.close()
 
  async def rx(ws):
+  global APP_CURSOR
   try:
    async for m in ws:
     if isinstance(m,str):
@@ -35,27 +41,41 @@ async def run_c(h,p,verbose=False):
      except: pass
      sys.stdout.write(m);sys.stdout.flush()
     else:
+     if b"\x1b[?1h" in m: APP_CURSOR=True
+     if b"\x1b[?1l" in m: APP_CURSOR=False
      sys.stdout.buffer.write(m)
      sys.stdout.buffer.flush()
   except: pass
   s.set()
 
  async def tx(ws):
+  global APP_CURSOR
   l=asyncio.get_running_loop()
   def rp(): return os.read(0,4096) if select.select([0],[],[],0.1)[0] else b""
   try:
    while not s.is_set():
     if IS_WIN:
      if msvcrt.kbhit():
-      c=msvcrt.getwch()
-      if c in ("\x00","\xe0"):
-       c2=msvcrt.getwch()
-       d={"H":b"\x1b[A","P":b"\x1b[B","M":b"\x1b[C","K":b"\x1b[D","S":b"\x1b[3~","G":b"\x1b[H","O":b"\x1b[F","I":b"\x1b[5~","Q":b"\x1b[6~"}.get(c2,b"")
-       if d: await ws.send(d)
-      else:
-       if c=="\x1d": await close_ws(ws);break
-       if c=="\x08": await ws.send(b"\x7f")
-       else: await ws.send(c.encode("utf-8","ignore"))
+      b=bytearray()
+      x=False
+      while True:
+       while msvcrt.kbhit():
+        c=msvcrt.getwch()
+        if c in ("\x00","\xe0"):
+         c2=msvcrt.getwch()
+         if APP_CURSOR: d={"H":b"\x1bOA","P":b"\x1bOB","M":b"\x1bOC","K":b"\x1bOD"}.get(c2)
+         else: d={"H":b"\x1b[A","P":b"\x1b[B","M":b"\x1b[C","K":b"\x1b[D"}.get(c2)
+         if not d: d={"R":b"\x1b[2~","S":b"\x1b[3~","G":b"\x1b[H","O":b"\x1b[F","I":b"\x1b[5~","Q":b"\x1b[6~","D":b"\x1b[21~"}.get(c2,b"")
+         if d: b.extend(d)
+        else:
+         if c=="\x1d": await close_ws(ws);x=True;break
+         if c=="\x08": b.extend(b"\x7f")
+         else: b.extend(c.encode("utf-8","ignore"))
+       if x: break
+       await asyncio.sleep(0.005)
+       if not msvcrt.kbhit(): break
+      if b: await ws.send(bytes(b))
+      if x: break
      else: await asyncio.sleep(0.01)
     else:
      c=await l.run_in_executor(None,rp)
@@ -85,10 +105,6 @@ async def run_c(h,p,verbose=False):
  if not IS_WIN:
   ot=termios.tcgetattr(0)
   tty.setraw(0);ct=termios.tcgetattr(0);ct[3]&=~termios.ISIG;termios.tcsetattr(0,termios.TCSADRAIN,ct)
- else:
-  import signal
-  try: signal.signal(signal.SIGINT, signal.SIG_IGN)
-  except: pass
 
  try:
   ws_ver=int(websockets.__version__.split(".")[0])
@@ -100,6 +116,9 @@ async def run_c(h,p,verbose=False):
   else: print("Fail")
  finally:
   if not IS_WIN: termios.tcsetattr(0,termios.TCSADRAIN,ot)
+  else:
+   try: k32.SetConsoleMode(hi,mi.value)
+   except: pass
   print("Connection Closed.")
 
 async def run_s(p,daemon=False):
