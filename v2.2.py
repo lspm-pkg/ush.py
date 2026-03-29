@@ -1,229 +1,120 @@
 #!/usr/bin/env python3
-import sys, os, json, asyncio, argparse, platform, struct, contextlib, signal
+import sys,os,json,argparse,platform,ipaddress,asyncio,struct,contextlib
+try: import websockets
+except: sys.exit("pip install websockets")
+IS_WIN=platform.system()=="Windows"
+if IS_WIN: import msvcrt
+else: import tty,termios,fcntl,select
 
-IS_WIN = platform.system() == "Windows"
-if IS_WIN:
-    import msvcrt
-else:
-    import tty, termios, fcntl, select
-try:
-    import websockets
-except ImportError:
-    print("pip install websockets")
-    sys.exit(1)
-
-def get_size():
-    try:
-        s = os.get_terminal_size()
-        return s.lines, s.columns
-    except Exception:
-        return 24, 80
-
-async def run_server(p, verbose=False):
-    if platform.system() != "Linux":
-        sys.exit("Server runs Linux only")
-    print(f"[ush] server running on :{p}")
-    async def handler(ws, _=None):
-        master = slave = pid = None
-        loop = asyncio.get_running_loop()
-        q = asyncio.Queue()
-        try:
-            try:
-                init = json.loads(await ws.recv())
-                rows = int(init.get("rows", 24))
-                cols = int(init.get("cols", 80))
-            except Exception:
-                return
-            master, slave = os.openpty()
-            fcntl.ioctl(slave, 21524, struct.pack("HHHH", rows, cols, 0, 0))
-            pid = os.fork()
-            if pid == 0:
-                os.close(master)
-                os.login_tty(slave)
-                os.execvp("/bin/login", ["/bin/login"])
-
-            def rd():
-                try:
-                    d = os.read(master, 16384)
-                    if d:
-                        q.put_nowait(d)
-                    else:
-                        with contextlib.suppress(Exception):
-                            loop.remove_reader(master)
-                        q.put_nowait(None)
-                except Exception:
-                    with contextlib.suppress(Exception):
-                        loop.remove_reader(master)
-                    q.put_nowait(None)
-            loop.add_reader(master, rd)
-            async def ws_r():
-                try:
-                    async for msg in ws:
-                        if isinstance(msg, bytes):
-                            with contextlib.suppress(Exception):
-                                os.write(master, msg)
-                        else:
-                            try:
-                                j = json.loads(msg)
-                            except Exception:
-                                continue
-                            if j.get("op") == "resize":
-                                with contextlib.suppress(Exception):
-                                    fcntl.ioctl(slave, 21524, struct.pack("HHHH", int(j["rows"]), int(j["cols"]), 0, 0))
-                                    os.kill(pid, signal.SIGWINCH)
-                finally:
-                    q.put_nowait(None)
-            async def ws_w():
-                while True:
-                    d = await q.get()
-                    if d is None:
-                        break
-                    with contextlib.suppress(Exception):
-                        await ws.send(d)
-            async def reap():
-                await loop.run_in_executor(None, os.waitpid, pid, 0)
-                with contextlib.suppress(Exception):
-                    await ws.send(b"Connection closed.")
-                with contextlib.suppress(Exception):
-                    await ws.close()
-                q.put_nowait(None)
-            await asyncio.gather(ws_r(), ws_w(), reap())
-        finally:
-            if master is not None:
-                with contextlib.suppress(Exception):
-                    loop.remove_reader(master)
-                with contextlib.suppress(Exception):
-                    os.close(master)
-            if slave is not None:
-                with contextlib.suppress(Exception):
-                    os.close(slave)
-            if pid:
-                with contextlib.suppress(Exception):
-                    os.kill(pid, 9)
-    async with websockets.serve(handler, "0.0.0.0", p):
-        await asyncio.Future()
-
-async def run_client(host, port, verbose=False):
-    addr = f"ws://{host}:{port}"
-    stop = asyncio.Event()
-    send_q = asyncio.Queue()
-    manual = {"v": False}
-    async def stdout_loop(ws):
-        try:
-            async for msg in ws:
-                if isinstance(msg, str):
-                    msg = msg.encode("utf-8", "ignore")
-                sys.stdout.buffer.write(msg)
-                sys.stdout.buffer.flush()
-        finally:
-            stop.set()
-    async def sender(ws):
-        while not stop.is_set():
-            try:
-                d = await asyncio.wait_for(send_q.get(), 0.1)
-            except asyncio.TimeoutError:
-                continue
-            with contextlib.suppress(Exception):
-                await ws.send(d)
-    async def resize(ws):
-        last = get_size()
-        with contextlib.suppress(Exception):
-            await ws.send(json.dumps({"rows": last[0], "cols": last[1]}))
-        while not stop.is_set():
-            await asyncio.sleep(0.5)
-            cur = get_size()
-            if cur != last:
-                last = cur
-                with contextlib.suppress(Exception):
-                    await ws.send(json.dumps({"op": "resize", "rows": cur[0], "cols": cur[1]}))
-    async def stdin_win():
-        while not stop.is_set():
-            if not msvcrt.kbhit():
-                await asyncio.sleep(0.01)
-                continue
-            ch = msvcrt.getwch()
-            if ch == "\x1d":
-                manual["v"] = True
-                stop.set()
-                return
-            if ch in ("\x00", "\xe0"):
-                nxt = msvcrt.getwch()
-                seq = {
-                    "H": b"\x1b[A",
-                    "P": b"\x1b[B",
-                    "K": b"\x1b[D",
-                    "M": b"\x1b[C",
-                    "G": b"\x1b[H",
-                    "O": b"\x1b[F",
-                    "R": b"\x1b[2~",
-                    "S": b"\x1b[3~",
-                    "I": b"\x1b[5~",
-                    "Q": b"\x1b[6~",
-                }.get(nxt)
-                if seq:
-                    await send_q.put(seq)
-                continue
-            if ch in ("\r", "\n"):
-                await send_q.put(b"\r")
-                continue
-            await send_q.put(ch.encode("utf-8", "ignore"))
-    async def stdin_unix():
-        loop = asyncio.get_running_loop()
-        old = termios.tcgetattr(0)
-        tty.setraw(0)
-        cur = termios.tcgetattr(0)
-        cur[3] &= ~termios.ISIG
-        termios.tcsetattr(0, termios.TCSADRAIN, cur)
-        try:
-            while not stop.is_set():
-                dr, _, _ = await loop.run_in_executor(None, select.select, [0], [], [], 0.1)
-                if not dr:
-                    continue
-                ch = os.read(0, 4096)
-                if b"\x1d" in ch:
-                    manual["v"] = True
-                    stop.set()
-                    return
-                if ch:
-                    await send_q.put(ch)
-        finally:
-            termios.tcsetattr(0, termios.TCSADRAIN, old)
-    async def stdin_loop(): await (stdin_win() if IS_WIN else stdin_unix())
-    try:
-        async with websockets.connect(addr) as ws:
-            tasks = [
-                asyncio.create_task(stdout_loop(ws)),
-                asyncio.create_task(sender(ws)),
-                asyncio.create_task(resize(ws)),
-                asyncio.create_task(stdin_loop()),
-            ]
-            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            stop.set()
-            for t in tasks:
-                t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-    except Exception as e:
-        print(f"Connection failed: {e}")
-    finally:
-        if manual["v"]:
-            print("[ush] aborted by user.")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="ush v2.2")
-    parser.add_argument("--server", "-s", action="store_true")
-    parser.add_argument("-p", type=int, default=80)
-    parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("host", nargs="?")
-    args = parser.parse_args()
-    if args.server:
-        try:
-            asyncio.run(run_server(args.p, args.verbose))
-        except KeyboardInterrupt:
-            pass
-    elif args.host:
-        try:
-            asyncio.run(run_client(args.host, args.p, args.verbose))
-        except KeyboardInterrupt:
-            pass
+async def run_c(h,p,verbose=False):
+ s=asyncio.Event();s.headers={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"}
+ uri=f"{h}:{p}" if "://" in h else f"{'wss' if p in (443,8443) else 'ws'}://{h}:{p}"
+ async def close_ws(ws): 
+  if not s.is_set(): s.set()
+  with contextlib.suppress(Exception): await ws.close()
+ async def rx(ws):
+  try:
+   async for m in ws:
+    if isinstance(m,str):
+     try:
+      d=json.loads(m)
+      if d.get("type")=="control"and d.get("action")=="close": await close_ws(ws);break
+      if d.get("type")=="resize": continue
+     except: pass
+     sys.stdout.write(m);sys.stdout.flush()
+    else: sys.stdout.buffer.write(m);sys.stdout.buffer.flush()
+  except: pass
+  s.set()
+ async def tx(ws):
+  l=asyncio.get_running_loop()
+  def rp(): return os.read(0,4096) if select.select([0],[],[],0.1)[0] else b""
+  try:
+   while not s.is_set():
+    if IS_WIN:
+     if msvcrt.kbhit():
+      c=msvcrt.getwch()
+      if c=="\x1d": await close_ws(ws);break
+      await ws.send(c.encode("utf-8","ignore"))
+     else: await asyncio.sleep(0.01)
     else:
-        parser.print_help()
+     c=await l.run_in_executor(None,rp)
+     if c:
+      if b"\x1d" in c: await close_ws(ws);break
+      await ws.send(c)
+  except: pass
+  s.set()
+ async def poll_sz(ws):
+  def sz():
+   if IS_WIN: return os.get_terminal_size()
+   try: return struct.unpack("HH",fcntl.ioctl(0,21523,b"\x00"*4))
+   except: return (24,80)
+  o=sz()
+  await ws.send(json.dumps({"type":"resize","rows":getattr(o,"lines",o[0]),"cols":getattr(o,"columns",o[1])}))
+  while not s.is_set():
+   await asyncio.sleep(0.5)
+   n=sz()
+   if n!=o:o=n;await ws.send(json.dumps({"type":"resize","rows":getattr(n,"lines",n[0]),"cols":getattr(n,"columns",n[1])}))
+ if not IS_WIN:
+  ot=termios.tcgetattr(0)
+  tty.setraw(0);ct=termios.tcgetattr(0);ct[3]&=~termios.ISIG;termios.tcsetattr(0,termios.TCSADRAIN,ct)
+ try: async with websockets.connect(uri,extra_headers=s.headers,ping_interval=20,ping_timeout=20) as ws: await asyncio.gather(rx(ws),tx(ws),poll_sz(ws))
+ finally: 
+  if not IS_WIN: termios.tcsetattr(0,termios.TCSADRAIN,ot)
+  print("Connection Closed." if not verbose else "Connection Closed.")
+
+async def run_s(p,daemon=False):
+ if platform.system()!="Linux": sys.exit("Server runs on Linux only.")
+ if daemon:
+  if os.fork()>0: sys.exit(0)
+  os.setsid()
+  if os.fork()>0: sys.exit(0)
+ async def h(ws,_=None):
+  pid=m=sl=None;l=asyncio.get_running_loop();q=asyncio.Queue();stop=asyncio.Event()
+  async def close_client():
+   if stop.is_set(): return
+   stop.set()
+   with contextlib.suppress(Exception): await ws.send(json.dumps({"type":"control","action":"close"}))
+   with contextlib.suppress(Exception): await ws.close()
+   with contextlib.suppress(Exception): q.put_nowait(None)
+  try:
+   try:r,c=map(int,(json.loads(await ws.recv()).get("rows",24),json.loads(await ws.recv()).get("cols",80)))
+   except: return
+   m,sl=os.openpty();fcntl.ioctl(sl,21524,struct.pack("HHHH",r,c,0,0));pid=os.fork()
+   if pid==0: os.close(m);os.login_tty(sl);os.execvp("/bin/login",["/bin/login"])
+   def rd():
+    try:
+     d=os.read(m,16384)
+     q.put_nowait(d if d else None)
+    except: q.put_nowait(None)
+   l.add_reader(m,rd)
+   async def ws_r():
+    try:
+     async for msg in ws:
+      if isinstance(msg,bytes): with contextlib.suppress(Exception): os.write(m,msg)
+      else:
+       try:j=json.loads(msg)
+       except: continue
+       if j.get("type")=="resize": with contextlib.suppress(Exception): fcntl.ioctl(sl,21524,struct.pack("HHHH",int(j["rows"]),int(j["cols"]),0,0));os.kill(pid,28)
+    finally: await close_client();q.put_nowait(None)
+   async def ws_w():
+    while True:
+     d=await q.get()
+     if d is None: break
+     with contextlib.suppress(Exception): await ws.send(d)
+   async def reap(): await l.run_in_executor(None,os.waitpid,pid,0);await close_client()
+   await asyncio.gather(ws_r(),ws_w(),reap())
+  finally:
+   with contextlib.suppress(Exception):
+    [l.remove_reader(m),os.close(m),os.close(sl),os.kill(pid,9)]
+ print(f"[ush] WS server running on :{p}")
+ async with websockets.serve(h,"0.0.0.0",p,ping_interval=20,ping_timeout=20): await asyncio.Future()
+
+if __name__=="__main__":
+ p=argparse.ArgumentParser(description="ush.py v3.1 (WebSockets)")
+ p.add_argument("--server","-s",action="store_true");p.add_argument("-p",type=int,default=8080);p.add_argument("-d",action="store_true");p.add_argument("-v","--verbose",action="store_true");p.add_argument("host",nargs="?");a=p.parse_args()
+ if a.host and "-p" not in sys.argv:
+  try: ipaddress.ip_address(a.host)
+  except: a.p=80
+ try:
+  asyncio.run(run_s(a.p,a.d) if a.server else run_c(a.host,a.p,a.verbose) if a.host else p.print_help())
+ except KeyboardInterrupt: print("Connection Closed.")
