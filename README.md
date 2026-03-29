@@ -1,4 +1,4 @@
-# ush.py (Unsecure Shell over HTTP)
+# ush.py (Unsecure Shell)
 ![Bandwidth](https://img.shields.io/badge/Bandwidth-Ultra--Low-brightgreen)
 ![Payload](https://img.shields.io/badge/Payload-Keystroke--Level-blue)
 ![Security](https://img.shields.io/badge/No-Security-red)
