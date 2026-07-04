@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-import sys,os,json,argparse,platform,ipaddress,asyncio,struct,contextlib
-try:import websockets
-except:sys.exit("pip install websockets")
+import sys,os,json,argparse,platform,ipaddress,asyncio,struct,contextlib,hashlib,base64
 IS_WIN=platform.system()=="Windows"
 APP_CURSOR=False
 if IS_WIN:
@@ -19,10 +17,101 @@ if IS_WIN:
  except:pass
 else:import tty,termios,fcntl,select
 
+_WS_GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+class _WS:
+ def __init__(s,r,w,c):
+  s._r,s._w,s._c,s._q,s._x=r,w,c,asyncio.Queue(),0
+  asyncio.create_task(s._l())
+ async def _l(s):
+  try:
+   while 1:
+    m=await s._f()
+    if m is None:break
+    await s._q.put(m)
+  except:pass
+  await s._q.put(None)
+ async def _f(s):
+  h=await s._r.readexactly(2)
+  if not h:return
+  b1,b2=h[0],h[1];op=b1&0xF;l=b2&0x7F;m=(b2>>7)&1
+  if l==126:l=struct.unpack(">H",await s._r.readexactly(2))[0]
+  elif l==127:l=struct.unpack(">Q",await s._r.readexactly(8))[0]
+  mk=None
+  if m:mk=await s._r.readexactly(4)
+  p=await s._r.readexactly(l)
+  if mk:p=bytes(b^mk[i%4] for i,b in enumerate(p))
+  if op==8:s._c=1;return
+  if op==9:await s._sw(0xA,p or b"");return await s._f()
+  if op==0xA:return await s._f()
+  return p.decode()if op==1 else p
+ async def _sw(s,op,p):
+  l=len(p);h=bytearray([0x80|op])
+  if l>65535:h.append(0xFF if s._c else 127);h.extend(struct.pack(">Q",l))
+  elif l>125:h.append(0xFE if s._c else 126);h.extend(struct.pack(">H",l))
+  else:h.append(0x80|l if s._c else l)
+  if s._c:
+   mk=os.urandom(4);h.extend(mk)
+   p=bytes(b^mk[i%4] for i,b in enumerate(p))
+  s._w.write(bytes(h)+p);await s._w.drain()
+ async def send(s,d):
+  if isinstance(d,str):await s._sw(1,d.encode())
+  else:await s._sw(2,d)
+ async def recv(s):
+  m=await s._q.get()
+  if m is None:raise ConnectionError
+  return m
+ def __aiter__(s):return s
+ async def __anext__(s):
+  m=await s._q.get()
+  if m is None:raise StopAsyncIteration
+  return m
+ async def close(s):
+  if not s._c:
+   s._c=1
+   try:await s._sw(8,b"")
+   except:pass
+   try:s._w.close()
+   except:pass
+
+async def _ws_connect(u,kw):
+ ssl=0;h=u
+ if h.startswith("ws://"):h=h[5:]
+ elif h.startswith("wss://"):h=h[6:];ssl=1
+ else:raise ValueError("bad ws uri")
+ p=h.split("/",1);host=p[0];path="/"+(p[1]if len(p)>1 else"")
+ port=443 if ssl and":"not in host else 80 if":"not in host else int(host.split(":")[1])
+ if":"in host:host=host.split(":")[0]
+ r,w=await asyncio.open_connection(host,port,ssl=ssl)
+ k=base64.b64encode(os.urandom(16)).decode()
+ req=f"GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {k}\r\nSec-WebSocket-Version: 13\r\n"
+ for n,v in kw.get("additional_headers",kw.get("extra_headers",{})).items():req+=f"{n}: {v}\r\n"
+ req+="\r\n"
+ w.write(req.encode());await w.drain()
+ d=b""
+ while b"\r\n\r\n"not in d:d+=await r.read(4096)
+ if b"101"not in d.split(b"\r\n")[0]:raise ConnectionError("handshake failed")
+ a=base64.b64encode(hashlib.sha1((k+_WS_GUID).encode()).digest()).decode()
+ if a.encode()not in d:raise ConnectionError("accept mismatch")
+ return _WS(r,w,1)
+
+async def _ws_serve(h,po):
+ async def o(r,w):
+  d=b""
+  while b"\r\n\r\n"not in d:d+=await r.read(4096)
+  k=""
+  for l in d.decode().split("\r\n"):
+   if l.lower().startswith("sec-websocket-key:"):k=l.split(":",1)[1].strip();break
+  if not k:return
+  a=base64.b64encode(hashlib.sha1((k+_WS_GUID).encode()).digest()).decode()
+  w.write(f"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {a}\r\n\r\n".encode());await w.drain()
+  await h(_WS(r,w,0))
+ s=await asyncio.start_server(o,"0.0.0.0",po);print(f"[ush] server running on :{po}")
+ async with s:await s.serve_forever()
+
 async def run_c(h,p,verbose=False):
  s=asyncio.Event()
  s.headers={"User-Agent":"Mozilla/5.0 (X11; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0"}
- uri=f"{h}:{p}" if "://" in h else f"{'wss' if p in (443,8443) else 'ws'}://{h}:{p}"
+ uri=f"{h}:{p}" if "://" in h else f"ws://{h}:{p}"
  async def close_ws(ws):
   if not s.is_set():s.set()
   with contextlib.suppress(Exception):await ws.close()
@@ -116,10 +205,9 @@ async def run_c(h,p,verbose=False):
   ct[3]&=~termios.ISIG
   termios.tcsetattr(0,termios.TCSADRAIN,ct)
  try:
-  ws_ver=int(websockets.__version__.split(".")[0])
-  kw={"additional_headers":s.headers}if ws_ver>=14 else{"extra_headers":s.headers}
-  async with websockets.connect(uri,**kw,ping_interval=20,ping_timeout=60)as ws:
-   await asyncio.gather(rx(ws),tx(ws),poll_sz(ws),return_exceptions=True)
+  ws=await _ws_connect(uri,{"additional_headers":s.headers})
+  await asyncio.gather(rx(ws),tx(ws),poll_sz(ws),return_exceptions=True)
+  await ws.close()
  except Exception as e:
   if verbose:print(f"Fail: {e}")
   else:print("Fail")
@@ -136,7 +224,7 @@ async def run_s(p,daemon=False):
   if os.fork()>0:sys.exit(0)
   os.setsid()
   if os.fork()>0:sys.exit(0)
- async def h(ws,_=None):
+ async def h(ws):
   pid=m=sl=None
   l=asyncio.get_running_loop()
   q=asyncio.Queue()
@@ -205,8 +293,7 @@ async def run_s(p,daemon=False):
     if sl is not None:os.close(sl)
    with contextlib.suppress(Exception):
     if pid:os.kill(pid,9)
- print(f"[ush] server running on :{p}")
- async with websockets.serve(h,"0.0.0.0",p,ping_interval=20,ping_timeout=60):await asyncio.Future()
+ await _ws_serve(h,p)
 
 if __name__=="__main__":
  p=argparse.ArgumentParser(description="ush.py v3.2")
