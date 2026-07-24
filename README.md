@@ -3,7 +3,7 @@
 ![Payload](https://img.shields.io/badge/Payload-Keystroke--Level-blue)
 ![Security](https://img.shields.io/badge/No-Security-red)
 ![Madeinpy](https://img.shields.io/badge/Made_in-Python-yellow)
-![Yaris](https://img.shields.io/badge/Size-9.0_KB-orange)
+![Yaris](https://img.shields.io/badge/Size-20.0_KB-orange)
 
 
 `ush.py` is an fork of HTTPshell.py. It is a single-file, dependency-minimal remote shell that operates entirely over Websocket. It is specifically optimized for extremely resource-constrained environments (like 32MB RAM) and networks where inbound TCP access is restricted by GCNAT or aggressive firewalls.
@@ -38,7 +38,29 @@ The client side supports absolutely anything.
 
 ## Installation
 
-Read the releases, there will be a install guide in there.
+### Linux
+
+```bash
+sudo install -m 755 v4.0.py /usr/bin/ush
+```
+
+### Windows
+
+Download `ush.exe` from the latest release and place it in `C:\Windows\System32\`:
+
+```cmd
+curl.exe -L --output C:\Windows\System32\ush.exe https://github.com/lspm-pkg/ush.py/releases/latest/download/ush.exe
+```
+
+### Service (Linux only)
+
+To install, enable, and start a systemd or OpenRC service, run this as root.
+It detects the init system, installs `/usr/bin/ush`, enables the service, and
+starts it immediately:
+
+```bash
+sudo ush -si -p 8080
+```
 
 ---
 
@@ -67,7 +89,9 @@ ush <host> -p 8080
 ## Features
 
 * PTY Powered: Supports `vim`, `htop`, `top`, and full shell interactivity with proper terminal resizing.
-* Fast: Highly optimized code for minimal overhead.
+* Fast: A single full-duplex WebSocket avoids HTTP polling overhead.
+* Stable under load: Bounded WebSocket frames and PTY queues apply backpressure
+  rather than allowing slow clients to consume unbounded memory.
 * Proxy Friendly: Designed to work flawlessly behind Cloudflare, Caddy, and other reverse proxies.
 
 ---
