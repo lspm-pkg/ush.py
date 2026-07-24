@@ -41,7 +41,14 @@ The client side supports absolutely anything.
 ### Linux
 
 ```bash
-sudo install -m 755 v4.0.py /usr/bin/ush
+# If already in a root shell:
+wget -O /usr/bin/ush https://github.com/lspm-pkg/ush.py/releases/latest/download/ush.py; chmod +x /usr/bin/ush
+
+# If not:
+sudo wget -O /usr/bin/ush https://github.com/lspm-pkg/ush.py/releases/latest/download/ush.py; sudo chmod +x /usr/bin/ush
+
+# For doas:
+doas wget -O /usr/bin/ush https://github.com/lspm-pkg/ush.py/releases/latest/download/ush.py; doas chmod +x /usr/bin/ush
 ```
 
 ### Windows
