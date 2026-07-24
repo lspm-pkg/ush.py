@@ -23,6 +23,7 @@ VERSION = "4.0"
 MAX_FRAME = 1024 * 1024
 MAX_QUEUE = 64
 MAX_PENDING_INPUT = 1024 * 1024
+PING_INTERVAL = 20
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 IS_WIN = platform.system() == "Windows"
 
@@ -239,13 +240,19 @@ async def client(host, port, verbose):
                     previous = current
                     await ws.send(json.dumps({"type": "resize", "rows": current[0], "cols": current[1]}))
 
+        async def keepalive():
+            while not stop.is_set():
+                await asyncio.sleep(PING_INTERVAL)
+                with contextlib.suppress(Exception):
+                    await ws._send_frame(9)
+
         if not IS_WIN:
             old_term = termios.tcgetattr(0)
             tty.setraw(0)
             current = termios.tcgetattr(0)
             current[3] &= ~termios.ISIG
             termios.tcsetattr(0, termios.TCSADRAIN, current)
-        tasks = [asyncio.create_task(coro()) for coro in (receive, send_input, resize)]
+        tasks = [asyncio.create_task(coro()) for coro in (receive, send_input, resize, keepalive)]
         await stop.wait()
         for task in tasks:
             task.cancel()
@@ -349,6 +356,12 @@ async def serve_client(ws):
     async def reap():
         await loop.run_in_executor(None, os.waitpid, pid, 0)
 
+    async def keepalive():
+        while True:
+            await asyncio.sleep(PING_INTERVAL)
+            with contextlib.suppress(Exception):
+                await ws._send_frame(9)
+
     try:
         init = await asyncio.wait_for(ws.recv(), timeout=10)
         if not isinstance(init, str):
@@ -375,7 +388,7 @@ async def serve_client(ws):
         os.set_blocking(master, False)
         loop.add_reader(master, pty_readable)
         reader_active = True
-        tasks = [asyncio.create_task(coro()) for coro in (read_ws, write_ws, reap)]
+        tasks = [asyncio.create_task(coro()) for coro in (read_ws, write_ws, reap, keepalive)]
         _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
@@ -394,8 +407,13 @@ async def serve_client(ws):
         if pid:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(pid, signal.SIGTERM)
-            with contextlib.suppress(ChildProcessError):
-                await loop.run_in_executor(None, os.waitpid, pid, 0)
+            try:
+                await asyncio.wait_for(loop.run_in_executor(None, os.waitpid, pid, 0), timeout=3)
+            except (asyncio.TimeoutError, ChildProcessError, OSError):
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(pid, signal.SIGKILL)
+                with contextlib.suppress(ChildProcessError, OSError):
+                    await loop.run_in_executor(None, os.waitpid, pid, 0)
         await ws.close()
 
 
