@@ -368,6 +368,7 @@ async def serve_client(ws):
             os.dup2(slave, 2)
             if slave > 2:
                 os.close(slave)
+            os.environ["TERM"] = "xterm-256color"
             os.execv("/bin/login", ["/bin/login"])
         os.close(slave)
         slave = None
@@ -433,8 +434,9 @@ def install_service(port):
         sys.exit("-si must be run as root")
     target = "/usr/bin/ush"
     source = os.path.realpath(__file__)
-    shutil.copy2(source, target)
-    os.chmod(target, 0o755)
+    if os.path.realpath(target) != source:
+        shutil.copy2(source, target)
+        os.chmod(target, 0o755)
     if shutil.which("systemctl") and os.path.isdir("/run/systemd/system"):
         path = "/etc/systemd/system/ush.service"
         content = f"""[Unit]
